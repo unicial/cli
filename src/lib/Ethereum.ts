@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events'
-import { RequestManager, ContractFactory, Contract, HTTPProvider } from 'eth-connect'
 
 import { IEthereumDataProvider } from './IEthereumDataProvider'
 import { ErrorType, fail } from '../utils/errors'
@@ -8,23 +7,31 @@ import { filterAndFillEmpty } from '../utils/land'
 import { isDebug } from '../utils/env'
 import { getConfig } from '../config'
 
-const manaAbi = require('../../abi/MANAToken.json').abi
-const landAbi = require('../../abi/LANDRegistry.json').abi
-const estateAbi = require('../../abi/EstateRegistry.json').abi
+import { HttpProvider } from 'web3x/providers'
+import { Eth } from 'web3x/eth'
+import { Address } from 'web3x/address'
+import { LANDContract } from 'src/contracts/LANDContract'
+import { MANAToken } from 'src/contracts/MANAToken'
+import { EstateRegistry } from 'src/contracts/EstateRegistry'
 
 const { provider } = getConfig()
-const providerInstance = new HTTPProvider(provider)
-const requestManager = new RequestManager(providerInstance)
-providerInstance.debug = isDebug()
+const httpProvider = new HttpProvider(provider)
+const eth = new Eth(httpProvider)
 
-const manaFactory = new ContractFactory(requestManager, manaAbi)
-const landFactory = new ContractFactory(requestManager, landAbi)
-const estateFactory = new ContractFactory(requestManager, estateAbi)
+const addresses = {
+  mainnet: {
+    LANDRegistry: new LANDContract(eth, Address.fromString('0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d')),
+    EstateRegistry: new EstateRegistry(eth, Address.fromString('0x959e104e1a4db6317fa58f8295f586e1a978c297')),
+    MANAToken: new MANAToken(eth, Address.fromString('0x0f5d2fb29fb7d3cfee444a200298f468908cc942'))
+  },
+  ropsten: {
+    LANDRegistry: new LANDContract(eth, Address.fromString('0x7a73483784ab79257bb11b96fd62a2c3ae4fb75b')),
+    EstateRegistry: new EstateRegistry(eth, Address.fromString('0x124bf28a423b2ca80b3846c3aa0eb944fe7ebb95')),
+    MANAToken: new MANAToken(eth, Address.fromString('0x2a8fd99c19271f4f04b1b7b9c4f7cf264b626edb'))
+  }
+}
 
-const factories = new Map<String, ContractFactory>()
-factories.set('MANAToken', manaFactory)
-factories.set('LANDRegistry', landFactory)
-factories.set('EstateRegistry', estateFactory)
+const contracts = addresses[isDebug ? 'ropsten' : 'mainnet']
 
 export type LANDData = {
   version?: number
@@ -48,32 +55,20 @@ export enum NETWORKS {
  *
  */
 export class Ethereum extends EventEmitter implements IEthereumDataProvider {
-  private static contracts = new Map<string, Contract>()
-
-  static async getContract(name: string): Promise<Contract> {
-    if (this.contracts.get(name)) {
-      return this.contracts.get(name)
-    }
-
-    const address = getConfig()[name]
-    const factory = factories.get(name)
-    const contract = await factory.at(address)
-    this.contracts.set(name, contract)
-    return contract
-  }
 
   async getLandOf(address: string): Promise<Coords[]> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.LANDRegistry
     try {
-      const [x, y] = await contract['landOf'](address.toUpperCase())
-      return x.map(($, i) => ({ x: $.toNumber(), y: y[i].toNumber() }))
+      const coordinates = await contract.methods.landOf(Address.fromString(address.toUpperCase())).call()
+      const [x, y] = [coordinates[0], coordinates[1]]
+      return x.map(($, i) => ({ x: parseInt($, 16), y: parseInt(y[i], 16) }))
     } catch (e) {
       fail(ErrorType.ETHEREUM_ERROR, `Unable to fetch LANDs: ${e.message}`)
     }
   }
 
   async getEstatesOf(address: string): Promise<number[]> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       const balance = await contract['balanceOf'](address)
       const requests = []
@@ -88,7 +83,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getLandData({ x, y }: Coords): Promise<LANDData> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.LANDRegistry
     try {
       const landData = await contract['landData'](x, y)
       return filterAndFillEmpty(this.decodeLandData(landData))
@@ -98,7 +93,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getEstateData(estateId: number): Promise<LANDData> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       const landData = await contract['getMetadata'](estateId)
       return filterAndFillEmpty(this.decodeLandData(landData))
@@ -108,7 +103,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getLandOwner({ x, y }: Coords): Promise<string> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.LANDRegistry
     try {
       return await contract['ownerOfLand'](x, y)
     } catch (e) {
@@ -117,7 +112,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getLandOperator({ x, y }: Coords): Promise<string> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.EstateRegistry
     try {
       const assetId = await contract['encodeTokenId'](x, y)
       return await contract['getApproved'](assetId)
@@ -127,7 +122,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getLandUpdateOperator({ x, y }: Coords): Promise<string> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.LANDRegistry
     try {
       const assetId = await contract['encodeTokenId'](x, y)
       return await contract['updateOperator'](assetId)
@@ -137,7 +132,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getEstateOwner(estateId: number): Promise<string> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       return await contract['ownerOf'](estateId)
     } catch (e) {
@@ -146,7 +141,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getEstateOperator(estateId: number): Promise<string> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       return await contract['getApproved'](estateId)
     } catch (e) {
@@ -155,7 +150,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getEstateUpdateOperator(estateId: number): Promise<string> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       return await contract['updateOperator'](estateId)
     } catch (e) {
@@ -182,8 +177,8 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getLandOfEstate(estateId: number): Promise<Coords[]> {
-    const contract = await Ethereum.getContract('EstateRegistry')
-    const landContract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.EstateRegistry
+    const landContract = contracts.LANDRegistry
 
     try {
       const estateSize = await contract['getEstateSize'](estateId)
@@ -205,8 +200,8 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   async getEstateIdOfLand({ x, y }: Coords): Promise<number> {
-    const contract = await Ethereum.getContract('EstateRegistry')
-    const landContract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.EstateRegistry
+    const landContract = contracts.LANDRegistry
 
     try {
       const assetId = await landContract['encodeTokenId'](x, y)
@@ -217,7 +212,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   private async isLandOperator(coords: Coords, owner: string): Promise<boolean> {
-    const contract = await Ethereum.getContract('LANDRegistry')
+    const contract = contracts.LANDRegistry
 
     const estate = await this.getEstateIdOfLand(coords)
 
@@ -235,7 +230,7 @@ export class Ethereum extends EventEmitter implements IEthereumDataProvider {
   }
 
   private async isEstateOperator(estateId: number, owner: string): Promise<boolean> {
-    const contract = await Ethereum.getContract('EstateRegistry')
+    const contract = contracts.EstateRegistry
     try {
       return await contract['isUpdateAuthorized'](owner, estateId)
     } catch (e) {

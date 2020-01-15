@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import { RequestManager, ContractFactory, providers, Contract } from 'eth-connect'
+import { RequestManager, ContractFactory, Contract, HTTPProvider } from 'eth-connect'
 
 import { IEthereumDataProvider } from './IEthereumDataProvider'
 import { ErrorType, fail } from '../utils/errors'
@@ -13,7 +13,7 @@ const landAbi = require('../../abi/LANDRegistry.json').abi
 const estateAbi = require('../../abi/EstateRegistry.json').abi
 
 const { provider } = getConfig()
-const providerInstance = new providers.HTTPProvider(provider)
+const providerInstance = new HTTPProvider(provider)
 const requestManager = new RequestManager(providerInstance)
 providerInstance.debug = isDebug()
 

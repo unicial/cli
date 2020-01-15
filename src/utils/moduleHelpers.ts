@@ -61,7 +61,7 @@ export async function getLatestVersion(name: string): Promise<string> {
   try {
     // NOTE: this packageJson function should receive the workingDir
     const pkg = await packageJson(name.toLowerCase())
-    return pkg.version
+    return pkg.version as string
   } catch (e) {
     return null
   }

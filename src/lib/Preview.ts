@@ -157,6 +157,9 @@ export class Preview extends EventEmitter {
     this.app.get('/scene.json', (_, res) => {
       res.sendFile(path.join(this.dcl.getWorkingDir(), 'scene.json'))
     })
+    this.app.get('/pepito', (_, res) => {
+      res.send({ dclEcsPath, dclApiPath, npmModulesPath })
+    })
 
     this.app.use(express.static(path.join(artifactPath, 'artifacts')))
 

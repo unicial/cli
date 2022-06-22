@@ -1,6 +1,6 @@
 {
   "name": "unicial",
-  "version": "3.10.8",
+  "version": "3.11.0",
   "description": "unicial CLI developer tool.",
   "bin": {
     "unicial": "dist/index.js"
@@ -25,7 +25,6 @@
   "keywords": [
     "unicial",
     "cli",
-    "dcl",
     "mana",
     "land"
   ],
